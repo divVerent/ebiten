@@ -16,6 +16,7 @@ package ebiten
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/hajimehoshi/ebiten/v2/internal/graphicsdriver"
 )
@@ -111,6 +112,17 @@ func (c *gameForUI) Draw(screenScale float64, offsetX, offsetY float64, needsCle
 		op.Filter = filterScreen
 	} else {
 		op.Filter = FilterLinear
+	}
+	filterName := os.Getenv("EBITEN_OVERRIDE_FILTER")
+	switch filterName {
+	case "linear":
+		op.Filter = FilterLinear
+	case "nearest":
+		op.Filter = FilterNearest
+	case "screen":
+		op.Filter = filterScreen
+	default:
+		panic(fmt.Sprintf("ebiten: invalid $EBITEN_OVERRIDE_FILTER value: %q", filterName))
 	}
 	c.screen.DrawImage(c.offscreen, op)
 	return nil
