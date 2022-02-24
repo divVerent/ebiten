@@ -223,6 +223,8 @@ func (c *uiContext) updateFrameImpl(updateCount int) error {
 	// filterScreen works with >=1 scale, but does not well with <1 scale.
 	// Use regular FilterLinear instead so far (#669).
 	switch {
+	case !IsScreenFilterEnabled():
+		op.Filter = FilterNearest
 	case math.Floor(s) == s:
 		op.Filter = FilterNearest
 	case s > 1:
