@@ -77,6 +77,7 @@ func CurrentFPS() float64 {
 
 var (
 	isScreenClearedEveryFrame = int32(1)
+	isScreenFilterEnabled     = int32(1)
 	isRunGameEnded_           = int32(0)
 	currentMaxTPS             = int32(DefaultTPS)
 )
@@ -99,6 +100,30 @@ func SetScreenClearedEveryFrame(cleared bool) {
 // IsScreenClearedEveryFrame is concurrent-safe.
 func IsScreenClearedEveryFrame() bool {
 	return atomic.LoadInt32(&isScreenClearedEveryFrame) != 0
+}
+
+// SetScreenFilterEnabled enables/disables the use of the "screen" filter Ebiten uses.
+//
+// The "screen" filter is a box filter from game to display resolution.
+//
+// If disabled, nearest-neighbor filtering will be used for scaling instead.
+//
+// The default state is true.
+//
+// SetScreenFilterEnabled is concurrent-safe, but takes effect only at the next Draw call.
+func SetScreenFilterEnabled(enabled bool) {
+	v := int32(0)
+	if enabled {
+		v = 1
+	}
+	atomic.StoreInt32(&isScreenFilterEnabled, v)
+}
+
+// IsScreenFilterEnabled returns true if Ebiten's "screen" filter is enabled.
+//
+// IsScreenFilterEnabled is concurrent-safe.
+func IsScreenFilterEnabled() bool {
+	return atomic.LoadInt32(&isScreenFilterEnabled) != 0
 }
 
 type imageDumperGame struct {
