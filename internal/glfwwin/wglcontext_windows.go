@@ -78,6 +78,7 @@ func (w *Window) choosePixelFormat(ctxconfig *ctxconfig, fbconfig_ *fbconfig) (i
 	}
 
 	usableConfigs := make([]*fbconfig, 0, nativeCount)
+	fmt.Printf("pixel formats: %v\n", nativeCount)
 	for i := int32(0); i < nativeCount; i++ {
 		var u fbconfig
 		pixelFormat := uintptr(i) + 1
@@ -94,18 +95,22 @@ func (w *Window) choosePixelFormat(ctxconfig *ctxconfig, fbconfig_ *fbconfig) (i
 			}
 
 			if findAttribValue(_WGL_SUPPORT_OPENGL_ARB) == 0 || findAttribValue(_WGL_DRAW_TO_WINDOW_ARB) == 0 {
+				fmt.Printf("reject pixel format %v/%v: no _WGL_SUPPORT_OPENGL_ARB or _WGL_DRAW_TO_WINDOW_ARB\n", pixelFormat, values)
 				continue
 			}
 
 			if findAttribValue(_WGL_PIXEL_TYPE_ARB) != _WGL_TYPE_RGBA_ARB {
+				fmt.Printf("reject pixel format %v/%v: no _WGL_TYPE_RGBA_ARB\n", pixelFormat, values)
 				continue
 			}
 
 			if findAttribValue(_WGL_ACCELERATION_ARB) == _WGL_NO_ACCELERATION_ARB {
+				fmt.Printf("reject pixel format %v/%v: _WGL_NO_ACCELERATION_ARB\n", pixelFormat, values)
 				continue
 			}
 
 			if (findAttribValue(_WGL_DOUBLE_BUFFER_ARB) != 0) != fbconfig_.doublebuffer {
+				fmt.Printf("reject pixel format %v/%v: no _WGL_DOUBLE_BUFFER_ARB == %v\n", pixelFormat, values, fbconfig_.doublebuffer)
 				continue
 			}
 
@@ -154,18 +159,22 @@ func (w *Window) choosePixelFormat(ctxconfig *ctxconfig, fbconfig_ *fbconfig) (i
 			}
 
 			if pfd.dwFlags&_PFD_DRAW_TO_WINDOW == 0 || pfd.dwFlags&_PFD_SUPPORT_OPENGL == 0 {
+				fmt.Printf("reject pixel format %v/%v: no _PFD_DRAW_TO_WINDOW or _PFD_SUPPORT_OPENGL\n", pixelFormat, pfd)
 				continue
 			}
 
 			if pfd.dwFlags&_PFD_GENERIC_ACCELERATED == 0 && pfd.dwFlags&_PFD_GENERIC_FORMAT != 0 {
+				fmt.Printf("reject pixel format %v/%v: no _PFD_GENERIC_ACCELERATED and has _PFD_GENERIC_FORMAT\n", pixelFormat, pfd)
 				continue
 			}
 
 			if pfd.iPixelType != _PFD_TYPE_RGBA {
+				fmt.Printf("reject pixel format %v/%v: no _PFD_TYPE_RGBA\n", pixelFormat, pfd)
 				continue
 			}
 
 			if (pfd.dwFlags&_PFD_DOUBLEBUFFER != 0) != fbconfig_.doublebuffer {
+				fmt.Printf("reject pixel format %v/%v: no _PFD_DOUBLEBUFFER == %v\n", pixelFormat, pfd, fbconfig_.doublebuffer)
 				continue
 			}
 
