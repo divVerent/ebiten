@@ -105,7 +105,7 @@ func (*nativeGamepadsImpl) openGamepad(gamepads *gamepads, path string) (err err
 
 	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_NONBLOCK, 0)
 	if err != nil {
-		if err == unix.EACCES {
+		if err == unix.EACCES || err == unix.EPERM {
 			return nil
 		}
 		// This happens just after a disconnection.
