@@ -157,25 +157,25 @@ func (n *nativeGamepadXbox) hasOwnStandardLayoutMapping() bool {
 	return true
 }
 
-func (n *nativeGamepadXbox) isStandardAxisAvailableInOwnMapping(axis gamepaddb.StandardAxis) bool {
+func (n *nativeGamepadXbox) standardAxisInOwnMapping(axis gamepaddb.StandardAxis) mapping {
 	switch axis {
 	case gamepaddb.StandardAxisLeftStickHorizontal,
 		gamepaddb.StandardAxisLeftStickVertical,
 		gamepaddb.StandardAxisRightStickHorizontal,
 		gamepaddb.StandardAxisRightStickVertical:
-		return true
+		return mapping{kind: axisMapping, index: int(axis)}
 	}
-	return false
+	return mapping{}
 }
 
-func (n *nativeGamepadXbox) isStandardButtonAvailableInOwnMapping(button gamepaddb.StandardButton) bool {
+func (n *nativeGamepadXbox) standardButtonInOwnMapping(button gamepaddb.StandardButton) mapping {
 	switch button {
 	case gamepaddb.StandardButtonFrontBottomLeft,
 		gamepaddb.StandardButtonFrontBottomRight:
-		return true
+		return mapping{kind: buttonMixedMapping, index: int(button)}
 	}
 	_, ok := standardButtonToGamepadInputGamepadButton(button)
-	return ok
+	return mapping{}
 }
 
 func (n *nativeGamepadXbox) axisCount() int {

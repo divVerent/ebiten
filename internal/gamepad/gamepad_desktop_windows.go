@@ -572,12 +572,12 @@ func (*nativeGamepadDesktop) hasOwnStandardLayoutMapping() bool {
 	return false
 }
 
-func (*nativeGamepadDesktop) isStandardAxisAvailableInOwnMapping(axis gamepaddb.StandardAxis) bool {
-	return false
+func (*nativeGamepadImpl) standardAxisInOwnMapping(axis gamepaddb.StandardAxis) mapping {
+	return mapping{}
 }
 
-func (*nativeGamepadDesktop) isStandardButtonAvailableInOwnMapping(button gamepaddb.StandardButton) bool {
-	return false
+func (*nativeGamepadImpl) standardButtonInOwnMapping(button gamepaddb.StandardButton) mapping {
+	return mapping{}
 }
 
 func (g *nativeGamepadDesktop) usesDInput() bool {

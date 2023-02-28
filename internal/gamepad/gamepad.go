@@ -187,11 +187,30 @@ type Gamepad struct {
 	native nativeGamepad
 }
 
+type mappingKind int
+
+const (
+	noMapping mappingKind = iota
+	axisMapping
+	buttonAnalogMapping
+	buttonDigitalMapping
+	buttonMixedMapping
+	hatUpMapping
+	hatRightMapping
+	hatDownMapping
+	hatLeftMapping
+)
+
+type mapping struct {
+	kind  mappingKind
+	index int
+}
+
 type nativeGamepad interface {
 	update(gamepads *gamepads) error
 	hasOwnStandardLayoutMapping() bool
-	isStandardAxisAvailableInOwnMapping(axis gamepaddb.StandardAxis) bool
-	isStandardButtonAvailableInOwnMapping(button gamepaddb.StandardButton) bool
+	standardAxisInOwnMapping(axis gamepaddb.StandardAxis) mapping
+	standardButtonInOwnMapping(button gamepaddb.StandardButton) mapping
 	axisCount() int
 	buttonCount() int
 	hatCount() int
@@ -284,14 +303,14 @@ func (g *Gamepad) IsStandardLayoutAvailable() bool {
 }
 
 // IsStandardAxisAvailable is concurrent safe.
-func (g *Gamepad) IsStandardAxisAvailable(button gamepaddb.StandardAxis) bool {
+func (g *Gamepad) IsStandardAxisAvailable(axis gamepaddb.StandardAxis) bool {
 	g.m.Lock()
 	defer g.m.Unlock()
 
 	if gamepaddb.HasStandardLayoutMapping(g.sdlID) {
-		return gamepaddb.HasStandardAxis(g.sdlID, button)
+		return gamepaddb.HasStandardAxis(g.sdlID, axis)
 	}
-	return g.native.isStandardAxisAvailableInOwnMapping(button)
+	return g.native.standardAxisInOwnMapping(axis).kind != noMapping
 }
 
 // IsStandardButtonAvailable is concurrent safe.
@@ -302,7 +321,7 @@ func (g *Gamepad) IsStandardButtonAvailable(button gamepaddb.StandardButton) boo
 	if gamepaddb.HasStandardLayoutMapping(g.sdlID) {
 		return gamepaddb.HasStandardButton(g.sdlID, button)
 	}
-	return g.native.isStandardButtonAvailableInOwnMapping(button)
+	return g.native.standardButtonInOwnMapping(button).kind != noMapping
 }
 
 // StandardAxisValue is concurrent-safe.
@@ -310,8 +329,38 @@ func (g *Gamepad) StandardAxisValue(axis gamepaddb.StandardAxis) float64 {
 	if gamepaddb.HasStandardLayoutMapping(g.sdlID) {
 		return gamepaddb.AxisValue(g.sdlID, axis, g)
 	}
-	if g.native.hasOwnStandardLayoutMapping() {
-		return g.native.axisValue(int(axis))
+	m := g.native.standardAxisInOwnMapping(axis)
+	switch m.kind {
+	case axisMapping:
+		return g.native.axisValue(m.index)
+	case buttonDigitalMapping:
+		if g.native.isButtonPressed(m.index) {
+			return 1
+		} else {
+			return -1
+		}
+	case buttonAnalogMapping, buttonMixedMapping:
+		return 2*g.native.buttonValue(m.index) - 1
+	case hatUpMapping:
+		if g.native.hatState(m.index)&hatUp != 0 {
+			return 1
+		}
+		return -1
+	case hatRightMapping:
+		if g.native.hatState(m.index)&hatRight != 0 {
+			return 1
+		}
+		return -1
+	case hatDownMapping:
+		if g.native.hatState(m.index)&hatDown != 0 {
+			return 1
+		}
+		return -1
+	case hatLeftMapping:
+		if g.native.hatState(m.index)&hatLeft != 0 {
+			return 1
+		}
+		return -1
 	}
 	return 0
 }
@@ -321,8 +370,38 @@ func (g *Gamepad) StandardButtonValue(button gamepaddb.StandardButton) float64 {
 	if gamepaddb.HasStandardLayoutMapping(g.sdlID) {
 		return gamepaddb.ButtonValue(g.sdlID, button, g)
 	}
-	if g.native.hasOwnStandardLayoutMapping() {
-		return g.native.buttonValue(int(button))
+	m := g.native.standardButtonInOwnMapping(button)
+	switch m.kind {
+	case axisMapping:
+		return (g.native.axisValue(m.index) + 1) / 2
+	case buttonDigitalMapping:
+		if g.native.isButtonPressed(m.index) {
+			return 1
+		} else {
+			return 0
+		}
+	case buttonAnalogMapping, buttonMixedMapping:
+		return g.native.buttonValue(m.index)
+	case hatUpMapping:
+		if g.native.hatState(m.index)&hatUp != 0 {
+			return 1
+		}
+		return 0
+	case hatRightMapping:
+		if g.native.hatState(m.index)&hatRight != 0 {
+			return 1
+		}
+		return 0
+	case hatDownMapping:
+		if g.native.hatState(m.index)&hatDown != 0 {
+			return 1
+		}
+		return 0
+	case hatLeftMapping:
+		if g.native.hatState(m.index)&hatLeft != 0 {
+			return 1
+		}
+		return 0
 	}
 	return 0
 }
@@ -332,8 +411,22 @@ func (g *Gamepad) IsStandardButtonPressed(button gamepaddb.StandardButton) bool 
 	if gamepaddb.HasStandardLayoutMapping(g.sdlID) {
 		return gamepaddb.IsButtonPressed(g.sdlID, button, g)
 	}
-	if g.native.hasOwnStandardLayoutMapping() {
-		return g.native.isButtonPressed(int(button))
+	m := g.native.standardButtonInOwnMapping(button)
+	switch m.kind {
+	case axisMapping:
+		return g.native.axisValue(m.index) > 35/255.0
+	case buttonDigitalMapping, buttonMixedMapping:
+		return g.native.isButtonPressed(m.index)
+	case buttonAnalogMapping:
+		return g.native.buttonValue(m.index) > 35/255.0*0.5+0.5
+	case hatUpMapping:
+		return g.native.hatState(m.index)&hatUp != 0
+	case hatRightMapping:
+		return g.native.hatState(m.index)&hatRight != 0
+	case hatDownMapping:
+		return g.native.hatState(m.index)&hatDown != 0
+	case hatLeftMapping:
+		return g.native.hatState(m.index)&hatLeft != 0
 	}
 	return false
 }

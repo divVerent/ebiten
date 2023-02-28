@@ -118,14 +118,26 @@ func (g *nativeGamepadImpl) hasOwnStandardLayoutMapping() bool {
 	return g.standard
 }
 
-func (g *nativeGamepadImpl) isStandardAxisAvailableInOwnMapping(axis gamepaddb.StandardAxis) bool {
+func (g *nativeGamepadImpl) standardAxisInOwnMapping(axis gamepaddb.StandardAxis) mapping {
 	// TODO: Implement this on the C side.
-	return axis >= 0 && int(axis) < len(g.axisValues)
+	if axis < 0 || int(axis) >= len(g.axisValues) {
+		return mapping{}
+	}
+	return mapping{
+		kind:  axisMapping,
+		index: int(axis),
+	}
 }
 
-func (g *nativeGamepadImpl) isStandardButtonAvailableInOwnMapping(button gamepaddb.StandardButton) bool {
+func (g *nativeGamepadImpl) standardButtonInOwnMapping(button gamepaddb.StandardButton) mapping {
 	// TODO: Implement this on the C side.
-	return button >= 0 && int(button) < len(g.buttonValues)
+	if button < 0 || int(button) >= len(g.buttonValues) {
+		return mapping{}
+	}
+	return mapping{
+		kind:  buttonMixedMapping,
+		index: int(button),
+	}
 }
 
 func (g *nativeGamepadImpl) axisCount() int {
