@@ -192,6 +192,12 @@ func (*nativeGamepadsImpl) openGamepad(gamepads *gamepads, path string) (err err
 	var axisCount int
 	var buttonCount int
 	var hatCount int
+	for i := range n.keyMap {
+		n.keyMap[i] = -1
+	}
+	for i := range n.absMap {
+		n.absMap[i] = -1
+	}
 	for code := _BTN_MISC; code < _KEY_CNT; code++ {
 		if !isBitSet(keyBits, code) {
 			continue
@@ -200,15 +206,15 @@ func (*nativeGamepadsImpl) openGamepad(gamepads *gamepads, path string) (err err
 		buttonCount++
 	}
 	for code := 0; code < _ABS_CNT; code++ {
-		n.absMap[code] = -1
 		if !isBitSet(absBits, code) {
 			continue
 		}
 		if code >= _ABS_HAT0X && code <= _ABS_HAT3Y {
 			n.absMap[code] = hatCount
-			hatCount++
 			// Skip Y.
 			code++
+			n.absMap[code] = hatCount
+			hatCount++
 			continue
 		}
 		if err := ioctl(n.fd, uint(_EVIOCGABS(uint(code))), unsafe.Pointer(&n.absInfo[code])); err != nil {
@@ -221,6 +227,8 @@ func (*nativeGamepadsImpl) openGamepad(gamepads *gamepads, path string) (err err
 	n.axisCount_ = axisCount
 	n.buttonCount_ = buttonCount
 	n.hatCount_ = hatCount
+
+	n.computeStandardLayout(id.vendor)
 
 	if err := n.pollAbsState(); err != nil {
 		return err
@@ -295,6 +303,9 @@ type nativeGamepadImpl struct {
 	axisCount_   int
 	buttonCount_ int
 	hatCount_    int
+
+	stdAxisMap   map[gamepaddb.StandardAxis]mapping
+	stdButtonMap map[gamepaddb.StandardButton]mapping
 }
 
 func (g *nativeGamepadImpl) close() {
@@ -355,6 +366,9 @@ func (g *nativeGamepadImpl) update(gamepad *gamepads) error {
 		case unix.EV_KEY:
 			if int(e.code-_BTN_MISC) < len(g.keyMap) {
 				idx := g.keyMap[e.code-_BTN_MISC]
+				if idx < 0 {
+					continue
+				}
 				g.buttons[idx] = e.value != 0
 			}
 		case unix.EV_ABS:
@@ -379,6 +393,9 @@ func (g *nativeGamepadImpl) pollAbsState() error {
 
 func (g *nativeGamepadImpl) handleAbsEvent(code int, value int32) {
 	index := g.absMap[code]
+	if index < 0 {
+		return
+	}
 
 	if code >= _ABS_HAT0X && code <= _ABS_HAT3Y {
 		axis := (code - _ABS_HAT0X) % 2
@@ -419,16 +436,143 @@ func (g *nativeGamepadImpl) handleAbsEvent(code int, value int32) {
 	g.axes[index] = v
 }
 
-func (*nativeGamepadImpl) hasOwnStandardLayoutMapping() bool {
-	return false
+func (g *nativeGamepadImpl) computeStandardLayout(vendor uint16) {
+	g.stdAxisMap = map[gamepaddb.StandardAxis]mapping{}
+	g.stdButtonMap = map[gamepaddb.StandardButton]mapping{}
+
+	// NOTE: assignments to the same value are in exact reverse order as SDL2,
+	// so we can just overwrite rather than checking.
+
+	// BTN_GAMEPAD implies that the kernel module implements standard mapping.
+	if b := g.keyMap[_BTN_GAMEPAD-_BTN_MISC]; b < 0 {
+		return
+	}
+
+	// A and B buttons go by name.
+	if b := g.keyMap[_BTN_A-_BTN_MISC]; b >= 0 {
+		g.stdButtonMap[gamepaddb.StandardButtonRightBottom] = mapping{kind: buttonDigitalMapping, index: b}
+	}
+	if b := g.keyMap[_BTN_B-_BTN_MISC]; b >= 0 {
+		g.stdButtonMap[gamepaddb.StandardButtonRightRight] = mapping{kind: buttonDigitalMapping, index: b}
+	}
+	if vendor == 0x054c /* USB_VENDOR_SONY */ {
+		// Sony uses WEST/NORTH buttons.
+		if b := g.keyMap[_BTN_WEST-_BTN_MISC]; b >= 0 {
+			g.stdButtonMap[gamepaddb.StandardButtonRightLeft] = mapping{kind: buttonDigitalMapping, index: b}
+		}
+		if b := g.keyMap[_BTN_NORTH-_BTN_MISC]; b >= 0 {
+			g.stdButtonMap[gamepaddb.StandardButtonRightTop] = mapping{kind: buttonDigitalMapping, index: b}
+		}
+	} else {
+		// Xbox uses X/Y buttons.
+		if b := g.keyMap[_BTN_X-_BTN_MISC]; b >= 0 {
+			g.stdButtonMap[gamepaddb.StandardButtonRightLeft] = mapping{kind: buttonDigitalMapping, index: b}
+		}
+		if b := g.keyMap[_BTN_Y-_BTN_MISC]; b >= 0 {
+			g.stdButtonMap[gamepaddb.StandardButtonRightTop] = mapping{kind: buttonDigitalMapping, index: b}
+		}
+	}
+
+	// Center and thumb buttons.
+	if b := g.keyMap[_BTN_SELECT-_BTN_MISC]; b >= 0 {
+		g.stdButtonMap[gamepaddb.StandardButtonCenterLeft] = mapping{kind: buttonDigitalMapping, index: b}
+	}
+	if b := g.keyMap[_BTN_START-_BTN_MISC]; b >= 0 {
+		g.stdButtonMap[gamepaddb.StandardButtonCenterRight] = mapping{kind: buttonDigitalMapping, index: b}
+	}
+	if b := g.keyMap[_BTN_THUMBL-_BTN_MISC]; b >= 0 {
+		g.stdButtonMap[gamepaddb.StandardButtonLeftStick] = mapping{kind: buttonDigitalMapping, index: b}
+	}
+	if b := g.keyMap[_BTN_THUMBR-_BTN_MISC]; b >= 0 {
+		g.stdButtonMap[gamepaddb.StandardButtonRightStick] = mapping{kind: buttonDigitalMapping, index: b}
+	}
+	if b := g.keyMap[_BTN_MODE-_BTN_MISC]; b >= 0 {
+		g.stdButtonMap[gamepaddb.StandardButtonCenterCenter] = mapping{kind: buttonDigitalMapping, index: b}
+	}
+
+	// Shoulder buttons can be analog or digital. Prefer digital ones.
+	if h := g.absMap[_ABS_HAT1Y]; h >= 0 {
+		g.stdButtonMap[gamepaddb.StandardButtonFrontTopLeft] = mapping{kind: hatDownMapping, index: h}
+	}
+	if h := g.absMap[_ABS_HAT1X]; h >= 0 {
+		g.stdButtonMap[gamepaddb.StandardButtonFrontTopRight] = mapping{kind: hatRightMapping, index: h}
+	}
+	if b := g.keyMap[_BTN_TL-_BTN_MISC]; b >= 0 {
+		g.stdButtonMap[gamepaddb.StandardButtonFrontTopLeft] = mapping{kind: buttonDigitalMapping, index: b}
+	}
+	if b := g.keyMap[_BTN_TR-_BTN_MISC]; b >= 0 {
+		g.stdButtonMap[gamepaddb.StandardButtonFrontTopRight] = mapping{kind: buttonDigitalMapping, index: b}
+	}
+
+	// Triggers can be analog or digital. Prefer analog ones.
+	if b := g.keyMap[_BTN_TL2-_BTN_MISC]; b >= 0 {
+		g.stdButtonMap[gamepaddb.StandardButtonFrontBottomLeft] = mapping{kind: buttonDigitalMapping, index: b}
+	}
+	if b := g.keyMap[_BTN_TR2-_BTN_MISC]; b >= 0 {
+		g.stdButtonMap[gamepaddb.StandardButtonFrontBottomRight] = mapping{kind: buttonDigitalMapping, index: b}
+	}
+	if a := g.absMap[_ABS_Z]; a >= 0 {
+		g.stdButtonMap[gamepaddb.StandardButtonFrontBottomLeft] = mapping{kind: axisMapping, index: a}
+	}
+	if a := g.absMap[_ABS_RZ]; a >= 0 {
+		g.stdButtonMap[gamepaddb.StandardButtonFrontBottomRight] = mapping{kind: axisMapping, index: a}
+	}
+	if h := g.absMap[_ABS_HAT2Y]; h >= 0 {
+		g.stdButtonMap[gamepaddb.StandardButtonFrontBottomLeft] = mapping{kind: hatDownMapping, index: h}
+	}
+	if h := g.absMap[_ABS_HAT2X]; h >= 0 {
+		g.stdButtonMap[gamepaddb.StandardButtonFrontBottomRight] = mapping{kind: hatRightMapping, index: h}
+	}
+
+	// D-pad can be analog or digital. Prefer digital one.
+	if h := g.absMap[_ABS_HAT0X]; h >= 0 {
+		g.stdButtonMap[gamepaddb.StandardButtonLeftLeft] = mapping{kind: hatLeftMapping, index: h}
+		g.stdButtonMap[gamepaddb.StandardButtonLeftRight] = mapping{kind: hatRightMapping, index: h}
+	}
+	if h := g.absMap[_ABS_HAT0Y]; h >= 0 {
+		g.stdButtonMap[gamepaddb.StandardButtonLeftTop] = mapping{kind: hatUpMapping, index: h}
+		g.stdButtonMap[gamepaddb.StandardButtonLeftBottom] = mapping{kind: hatDownMapping, index: h}
+	}
+	if b := g.keyMap[_BTN_DPAD_UP-_BTN_MISC]; b >= 0 {
+		g.stdButtonMap[gamepaddb.StandardButtonLeftTop] = mapping{kind: buttonDigitalMapping, index: b}
+	}
+	if b := g.keyMap[_BTN_DPAD_DOWN-_BTN_MISC]; b >= 0 {
+		g.stdButtonMap[gamepaddb.StandardButtonLeftBottom] = mapping{kind: buttonDigitalMapping, index: b}
+	}
+	if b := g.keyMap[_BTN_DPAD_LEFT-_BTN_MISC]; b >= 0 {
+		g.stdButtonMap[gamepaddb.StandardButtonLeftLeft] = mapping{kind: buttonDigitalMapping, index: b}
+	}
+	if b := g.keyMap[_BTN_DPAD_RIGHT-_BTN_MISC]; b >= 0 {
+		g.stdButtonMap[gamepaddb.StandardButtonLeftRight] = mapping{kind: buttonDigitalMapping, index: b}
+	}
+
+	// Left stick.
+	if a := g.absMap[_ABS_X]; a >= 0 {
+		g.stdAxisMap[gamepaddb.StandardAxisLeftStickHorizontal] = mapping{kind: axisMapping, index: a}
+	}
+	if a := g.absMap[_ABS_Y]; a >= 0 {
+		g.stdAxisMap[gamepaddb.StandardAxisLeftStickVertical] = mapping{kind: axisMapping, index: a}
+	}
+
+	// Right stick.
+	if a := g.absMap[_ABS_RX]; a >= 0 {
+		g.stdAxisMap[gamepaddb.StandardAxisRightStickHorizontal] = mapping{kind: axisMapping, index: a}
+	}
+	if a := g.absMap[_ABS_RY]; a >= 0 {
+		g.stdAxisMap[gamepaddb.StandardAxisRightStickVertical] = mapping{kind: axisMapping, index: a}
+	}
+}
+
+func (g *nativeGamepadImpl) hasOwnStandardLayoutMapping() bool {
+	return len(g.stdAxisMap) != 0 || len(g.stdButtonMap) != 0
 }
 
 func (g *nativeGamepadImpl) standardAxisInOwnMapping(axis gamepaddb.StandardAxis) mapping {
-	return mapping{}
+	return g.stdAxisMap[axis]
 }
 
 func (g *nativeGamepadImpl) standardButtonInOwnMapping(button gamepaddb.StandardButton) mapping {
-	return mapping{}
+	return g.stdButtonMap[button]
 }
 
 func (g *nativeGamepadImpl) axisCount() int {
