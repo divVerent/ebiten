@@ -18,6 +18,6 @@ import (
 	"image"
 )
 
-func RemoveDuplicatedRegions(regions []image.Rectangle) int {
-	return removeDuplicatedRegions(regions)
+func AppendRegionRemovingDuplicates(regions []image.Rectangle, toAdd image.Rectangle) []image.Rectangle {
+	return appendRegionRemovingDuplicates(regions, toAdd)
 }
