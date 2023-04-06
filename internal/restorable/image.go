@@ -240,25 +240,24 @@ func (i *Image) makeStale(rect image.Rectangle) {
 		return
 	}
 
-	origNum := len(i.staleRegions)
-	i.staleRegions = i.appendRegionsForDrawTriangles(i.staleRegions)
+	addedRegions := i.appendRegionsForDrawTriangles(nil)
 	if !rect.Empty() {
-		i.staleRegions = append(i.staleRegions, rect)
+		addedRegions = appendRegionRemovingDuplicates(addedRegions, rect)
+	}
+
+	for _, rect := range addedRegions {
+		i.staleRegions = appendRegionRemovingDuplicates(i.staleRegions, rect)
 	}
 
 	i.clearDrawTrianglesHistory()
 
 	// Clear pixels to save memory.
-	for _, r := range i.staleRegions[origNum:] {
+	for _, r := range addedRegions {
 		if r.Empty() {
 			continue
 		}
 		i.basePixels.Clear(r.Min.X, r.Min.Y, r.Dx(), r.Dy())
 	}
-
-	// Remove duplicated regions to avoid unnecessary reading pixels from GPU.
-	n := removeDuplicatedRegions(i.staleRegions)
-	i.staleRegions = i.staleRegions[:n]
 
 	// Don't have to call makeStale recursively here.
 	// Restoring is done after topological sorting is done.
@@ -487,8 +486,7 @@ func (i *Image) readPixelsFromGPU(graphicsDriver graphicsdriver.Graphics) error 
 		defer func() {
 			i.regionsCache = i.regionsCache[:0]
 		}()
-		n := removeDuplicatedRegions(i.regionsCache)
-		rs = i.regionsCache[:n]
+		rs = i.regionsCache
 	}
 
 	for _, r := range rs {
@@ -629,10 +627,8 @@ func (i *Image) restore(graphicsDriver graphicsdriver.Graphics) error {
 		defer func() {
 			i.regionsCache = i.regionsCache[:0]
 		}()
-		n := removeDuplicatedRegions(i.regionsCache)
-		rs := i.regionsCache[:n]
 
-		for _, r := range rs {
+		for _, r := range i.regionsCache {
 			if r.Empty() {
 				continue
 			}
@@ -699,17 +695,14 @@ func (i *Image) InternalSize() (int, int) {
 }
 
 func (i *Image) appendRegionsForDrawTriangles(regions []image.Rectangle) []image.Rectangle {
-	n := len(regions)
 	for _, d := range i.drawTrianglesHistory {
 		r := regionToRectangle(d.dstRegion)
 		if r.Empty() {
 			continue
 		}
-		regions = append(regions, r)
+		regions = appendRegionRemovingDuplicates(regions, r)
 	}
-
-	nn := removeDuplicatedRegions(regions[n:])
-	return regions[:n+nn]
+	return regions
 }
 
 func regionToRectangle(region graphicsdriver.Region) image.Rectangle {
@@ -720,34 +713,29 @@ func regionToRectangle(region graphicsdriver.Region) image.Rectangle {
 		int(math.Ceil(float64(region.Y+region.Height))))
 }
 
-// removeDuplicatedRegions removes duplicated regions and returns the new size of the slice.
-// If a region covers other regions, the covered regions are removed.
-func removeDuplicatedRegions(regions []image.Rectangle) int {
-	for i, r := range regions {
-		if r.Empty() {
-			continue
-		}
-		for j, rr := range regions {
-			if i == j {
-				continue
-			}
-			if rr.Empty() {
-				continue
-			}
-			if rr.In(r) {
-				regions[j] = image.Rectangle{}
-			}
+// appendRegionRemovingDuplicates adds a region to a given list of regions,
+// but removes any duplicate between the newly added region and any existing regions.
+//
+// In case the newly added region is fully contained in any pre-existing region, this function does nothing.
+// Otherwise, any pre-existing regions that are fully contained in the newly added region are removed.
+//
+// This is done to avoid unnecessary reading pixels from GPU.
+func appendRegionRemovingDuplicates(regions []image.Rectangle, region image.Rectangle) []image.Rectangle {
+	for _, r := range regions {
+		if region.In(r) {
+			// The newly added rectangle is fully contained in one of the input regions.
+			// Nothing to add.
+			return regions
 		}
 	}
-
+	// Separate loop, as regions must not get mutated before above return.
 	n := 0
 	for _, r := range regions {
-		if r.Empty() {
+		if r.In(region) {
 			continue
 		}
 		regions[n] = r
 		n++
 	}
-
-	return n
+	return append(regions[:n], region)
 }
