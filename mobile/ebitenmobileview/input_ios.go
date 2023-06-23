@@ -58,3 +58,22 @@ func UpdateTouchesOnIOS(phase int, ptr int64, x, y int) {
 		panic(fmt.Sprintf("ebitenmobileview: invalid phase: %d", phase))
 	}
 }
+
+func UpdatePressesOnIOS(phase int, keyCode int, keyString string) {
+	switch phase {
+	case C.UITouchPhaseBegan, C.UITouchPhaseMoved, C.UITouchPhaseStationary:
+		if key, ok := iosKeyToUIKey[keyCode]; ok {
+			keys[key] = struct{}{}
+		}
+		runes = []rune(keyString)
+		updateInput()
+	case C.UITouchPhaseEnded, C.UITouchPhaseCancelled:
+		if key, ok := iosKeyToUIKey[keyCode]; ok {
+			delete(keys, key)
+		}
+		runes = nil
+		updateInput()
+	default:
+		panic(fmt.Sprintf("ebitenmobileview: invalid phase: %d", phase))
+	}
+}
